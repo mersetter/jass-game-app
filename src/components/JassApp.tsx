@@ -1,228 +1,281 @@
-
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-    createDeck, Player, Card, Suit, PlayedCard, Mode,
-    getTrickWinner, isValidMove, getCardValue
-} from '@/lib/jass';
+import Pusher from 'pusher-js';
+import { GameState } from '@/lib/types';
+import { Lobby } from './Lobby';
 import { GameTable } from './GameTable';
+import { PUSHER_EVENTS } from '@/lib/pusher';
 
-// Constants
-const DELAY_BETWEEN_TRICKS = 2000;
-const BOT_THINK_TIME = 1000;
+// Initialize Pusher client
+let pusherClient: Pusher | null = null;
+
+function getPusher(): Pusher {
+    if (!pusherClient) {
+        pusherClient = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
+            cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
+        });
+    }
+    return pusherClient;
+}
 
 export default function JassApp() {
-    const [gameState, setGameState] = useState<'LOBBY' | 'PLAYING' | 'FINISHED'>('LOBBY');
-    const [players, setPlayers] = useState<Player[]>([]);
-    const [myPlayerId, setMyPlayerId] = useState<string>('me');
-    const [trump, setTrump] = useState<Suit | null>(null);
-    const [trick, setTrick] = useState<PlayedCard[]>([]);
-    const [currentTurn, setCurrentTurn] = useState<number>(0);
-    const [lastTrickWinner, setLastTrickWinner] = useState<{ name: string, score: number } | undefined>(undefined);
-    const [scores, setScores] = useState<{ team1: number, team2: number }>({ team1: 0, team2: 0 }); // Team 1: P0 & P2, Team 2: P1 & P3
+    // State
+    const [roomId, setRoomId] = useState<string | null>(null);
+    const [playerId, setPlayerId] = useState<string | null>(null);
+    const [gameState, setGameState] = useState<GameState | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [notification, setNotification] = useState<string | null>(null);
 
-    const [notification, setNotification] = useState<string>('');
+    // Check if current player is host
+    const isHost = gameState?.hostId === playerId;
 
-    // LOBBY: Setup game
-    const startGame = (type: 'vs_bots' | 'online') => {
-        if (type === 'vs_bots') {
-            const newPlayers: Player[] = [
-                { id: 'me', name: 'You', isBot: false, hand: [], team: 1 },
-                { id: 'bot1', name: 'Hansi (Bot)', isBot: true, hand: [], team: 2 },
-                { id: 'bot2', name: 'Fritz (Partner)', isBot: true, hand: [], team: 1 },
-                { id: 'bot3', name: 'Ruedi (Bot)', isBot: true, hand: [], team: 2 },
-            ];
-            setPlayers(newPlayers);
-            startRound(newPlayers);
-        } else {
-            // Online scaffold - not fully implemented in this demo
-            alert("Online multiplayer requires a backend server. Starting vs Bots for demo.");
-            startGame('vs_bots');
-        }
-    };
+    // Show notification temporarily
+    const showNotification = useCallback((message: string) => {
+        setNotification(message);
+        setTimeout(() => setNotification(null), 3000);
+    }, []);
 
-    const startRound = (currentPlayers: Player[]) => {
-        const deck = createDeck();
-
-        // Distribute 9 cards each
-        const updatedPlayers = currentPlayers.map((p, idx) => ({
-            ...p,
-            hand: deck.slice(idx * 9, (idx + 1) * 9).sort((a, b) => a.suit.localeCompare(b.suit)) // Simple sort
-        }));
-
-        setPlayers(updatedPlayers);
-        setGameState('PLAYING');
-        setTrick([]);
-        setCurrentTurn(0); // Player 0 starts
-
-        // Choose Trump Randomly for now
-        const suits: Suit[] = ['HEARTS', 'DIAMONDS', 'CLUBS', 'SPADES'];
-        const randomTrump = suits[Math.floor(Math.random() * suits.length)];
-        setTrump(randomTrump);
-        setNotification(`Trump is ${randomTrump}!`);
-    };
-
-    // Turn orchestration
+    // Subscribe to Pusher channel
     useEffect(() => {
-        if (gameState !== 'PLAYING') return;
+        if (!roomId) return;
 
-        // Check if trick is full
-        if (trick.length === 4) {
-            const timer = setTimeout(() => {
-                resolveTrick();
-            }, DELAY_BETWEEN_TRICKS);
-            return () => clearTimeout(timer);
-        }
+        const pusher = getPusher();
+        const channel = pusher.subscribe(`jass-room-${roomId}`);
 
-        // Check if current player is Bot
-        const player = players[currentTurn];
-        if (player && player.isBot && trick.length < 4) {
-            const timer = setTimeout(() => {
-                playBotTurn(player);
-            }, BOT_THINK_TIME);
-            return () => clearTimeout(timer);
-        }
-    }, [gameState, currentTurn, trick, players]);
+        channel.bind(PUSHER_EVENTS.PLAYER_JOINED, (data: { state: GameState }) => {
+            setGameState(data.state);
+            const newPlayer = data.state.players[data.state.players.length - 1];
+            if (newPlayer.id !== playerId) {
+                showNotification(`${newPlayer.name} ist beigetreten!`);
+            }
+        });
 
-    const playBotTurn = (bot: Player) => {
-        // Simple logic: Valid moves
-        const validMoves = bot.hand.map((c, idx) => ({ card: c, idx })).filter(m => isValidMove(m.card, bot.hand, trick, trump));
+        channel.bind(PUSHER_EVENTS.GAME_STARTED, (data: { state: GameState }) => {
+            setGameState(data.state);
+            showNotification('Spiel gestartet! 🎮');
+        });
 
-        if (validMoves.length === 0) {
-            console.error("Bot has no valid moves? Logic error.");
-            return;
-        }
+        channel.bind(PUSHER_EVENTS.CARD_PLAYED, (data: { state: GameState }) => {
+            setGameState(data.state);
+        });
 
-        // Pick random valid move (or improving logic: play highest if winning, lowest if losing)
-        const move = validMoves[Math.floor(Math.random() * validMoves.length)];
-        handlePlayCard(currentTurn, move.idx);
-    };
+        channel.bind(PUSHER_EVENTS.TRICK_WON, (data: { winner: { playerName: string; points: number }; state: GameState }) => {
+            setGameState(data.state);
+            showNotification(`${data.winner.playerName} gewinnt den Stich! (+${data.winner.points})`);
+        });
 
-    const handlePlayCard = (playerIdx: number, cardIdx: number) => {
-        const player = players[playerIdx];
-        const card = player.hand[cardIdx];
+        channel.bind(PUSHER_EVENTS.ROUND_END, (data: { state: GameState }) => {
+            setGameState(data.state);
+            showNotification('Runde beendet!');
+        });
 
-        if (!isValidMove(card, player.hand, trick, trump)) {
-            setNotification("Invalid Move! Must follow suit.");
-            return;
-        }
-        setNotification("");
+        channel.bind(PUSHER_EVENTS.GAME_OVER, (data: { state: GameState }) => {
+            setGameState(data.state);
+            const winner = data.state.scores.team1 >= 1000 ? 'Team Rot' : 'Team Blau';
+            showNotification(`🏆 ${winner} gewinnt das Spiel!`);
+        });
 
-        // Update Player Hand (Remove card)
-        const newHand = [...player.hand];
-        newHand.splice(cardIdx, 1);
-        const newPlayers = [...players];
-        newPlayers[playerIdx] = { ...player, hand: newHand };
-        setPlayers(newPlayers);
+        return () => {
+            channel.unbind_all();
+            pusher.unsubscribe(`jass-room-${roomId}`);
+        };
+    }, [roomId, playerId, showNotification]);
 
-        // Add to Trick
-        const newTrick = [...trick, { playerId: player.id, card }];
-        setTrick(newTrick);
+    // Create a new room
+    const handleCreateRoom = async (playerName: string) => {
+        setIsLoading(true);
+        setError(null);
 
-        // Next Turn (if trick not full)
-        if (newTrick.length < 4) {
-            setCurrentTurn((currentTurn + 1) % 4);
-        }
-    };
+        try {
+            const response = await fetch('/api/room', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ playerName }),
+            });
 
-    const resolveTrick = () => {
-        const leadSuit = trick[0].card.suit;
-        // Calculate winner
-        // Winner is relative index in trick. trick[0] is who started the trick.
-        // getTrickWinner returns index in the TRICK array.
-        // We need to map that back to player index.
-        // Actually, trick contains PlayedCard { playerId }.
+            const data = await response.json();
 
-        const winnerIdxInTrick = getTrickWinner(trick, trump, leadSuit);
-        const winnerCard = trick[winnerIdxInTrick];
-        const winnerPlayerIdx = players.findIndex(p => p.id === winnerCard.playerId);
+            if (!response.ok) {
+                throw new Error(data.error || 'Fehler beim Erstellen');
+            }
 
-        // Calculate Points
-        const points = trick.reduce((sum, p) => sum + getCardValue(p.card, trump, 'TRUMP'), 0) + (players[0].hand.length === 0 ? 5 : 0); // +5 for last match? logic check.
-        // Usually +5 is for the *last trick of the round*.
-        // Check if hand is empty AFTER this trick. Yes, if hands are empty now.
-
-        // Update Score
-        const winnerTeam = players[winnerPlayerIdx].team;
-        setScores(prev => ({
-            ...prev,
-            [winnerTeam === 1 ? 'team1' : 'team2']: prev[winnerTeam === 1 ? 'team1' : 'team2'] + points
-        }));
-
-        setLastTrickWinner({ name: players[winnerPlayerIdx].name, score: points });
-
-        // Winner starts next trick
-        setTrick([]);
-        setCurrentTurn(winnerPlayerIdx);
-
-        // Check if round finished
-        if (players[0].hand.length === 0) {
-            setNotification("Round Finished!");
-            setGameState('FINISHED');
+            setRoomId(data.roomId);
+            setPlayerId(data.playerId);
+            setGameState(data.state);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unbekannter Fehler');
+        } finally {
+            setIsLoading(false);
         }
     };
 
-    // Rendering
-    if (gameState === 'LOBBY') {
-        return (
-            <div className="flex flex-col items-center justify-center min-h-screen bg-black text-white p-4">
-                <h1 className="text-6xl font-bold mb-8 text-transparent bg-clip-text bg-gradient-to-r from-red-600 to-white">
-                    Jass.io
-                </h1>
-                <div className="flex gap-4">
-                    <button onClick={() => startGame('vs_bots')} className="btn btn-primary text-xl px-8 py-4">
-                        Play vs Bots
-                    </button>
-                    <button onClick={() => startGame('online')} className="btn btn-outline text-xl px-8 py-4">
-                        Create Online Game
-                    </button>
-                </div>
-            </div>
-        );
-    } else if (gameState === 'FINISHED') {
-        return (
-            <div className="flex flex-col items-center justify-center min-h-screen bg-black text-white p-4">
-                <h1 className="text-4xl mb-4">Game Over</h1>
-                <div className="text-2xl mb-8 grid grid-cols-2 gap-8">
-                    <div className="glass p-8 rounded text-center">
-                        <div className="text-gray-400">Team You</div>
-                        <div className="text-6xl font-bold text-green-400">{scores.team1}</div>
+    // Join an existing room
+    const handleJoinRoom = async (code: string, playerName: string) => {
+        setIsLoading(true);
+        setError(null);
+
+        try {
+            const response = await fetch('/api/room/join', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ roomId: code, playerName }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Fehler beim Beitreten');
+            }
+
+            setRoomId(code.toUpperCase());
+            setPlayerId(data.playerId);
+            setGameState(data.state);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unbekannter Fehler');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // Start the game
+    const handleStartGame = async () => {
+        if (!roomId || !playerId) return;
+
+        setIsLoading(true);
+        setError(null);
+
+        try {
+            const response = await fetch('/api/game/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ roomId, playerId }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Fehler beim Starten');
+            }
+
+            setGameState(data.state);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unbekannter Fehler');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // Play a card
+    const handlePlayCard = async (cardIndex: number) => {
+        if (!roomId || !playerId) return;
+
+        try {
+            const response = await fetch('/api/game/play', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ roomId, playerId, cardIndex }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                showNotification(data.error || 'Ungültiger Zug');
+                return;
+            }
+
+            setGameState(data.state);
+        } catch (err) {
+            showNotification('Verbindungsfehler');
+        }
+    };
+
+    // Render based on game status
+    const renderContent = () => {
+        if (!gameState || gameState.status === 'LOBBY') {
+            return (
+                <Lobby
+                    roomId={roomId}
+                    gameState={gameState}
+                    playerId={playerId}
+                    isHost={isHost}
+                    onCreateRoom={handleCreateRoom}
+                    onJoinRoom={handleJoinRoom}
+                    onStartGame={handleStartGame}
+                    isLoading={isLoading}
+                    error={error}
+                />
+            );
+        }
+
+        if (gameState.status === 'PLAYING' || gameState.status === 'ROUND_END') {
+            return (
+                <GameTable
+                    players={gameState.players}
+                    myPlayerId={playerId!}
+                    trick={gameState.trick}
+                    trump={gameState.trump}
+                    currentTurn={gameState.currentTurn}
+                    onPlayCard={handlePlayCard}
+                    lastTrickWinner={gameState.lastTrickWinner}
+                    scores={gameState.scores}
+                />
+            );
+        }
+
+        if (gameState.status === 'GAME_OVER') {
+            const winner = gameState.scores.team1 >= 1000 ? 1 : 2;
+            const myTeam = gameState.players.find((p) => p.id === playerId)?.team;
+            const didWin = myTeam === winner;
+
+            return (
+                <div className="lobby-container">
+                    <div className="glass-card p-8 text-center">
+                        <div className="text-6xl mb-4">{didWin ? '🏆' : '😢'}</div>
+                        <h1 className="text-headline mb-2">
+                            {didWin ? 'Gewonnen!' : 'Verloren!'}
+                        </h1>
+                        <p className="text-muted mb-6">
+                            Team {winner === 1 ? 'Rot' : 'Blau'} gewinnt mit{' '}
+                            {winner === 1 ? gameState.scores.team1 : gameState.scores.team2} Punkten!
+                        </p>
+                        <div className="flex gap-6 justify-center mb-6">
+                            <div className="score-item">
+                                <span className="score-label">Team Rot</span>
+                                <span className="score-value team-you">{gameState.scores.team1}</span>
+                            </div>
+                            <div className="score-item">
+                                <span className="score-label">Team Blau</span>
+                                <span className="score-value team-them">{gameState.scores.team2}</span>
+                            </div>
+                        </div>
+                        <button
+                            className="btn btn-primary btn-lg"
+                            onClick={() => {
+                                setRoomId(null);
+                                setPlayerId(null);
+                                setGameState(null);
+                            }}
+                        >
+                            Neues Spiel
+                        </button>
                     </div>
-                    <div className="glass p-8 rounded text-center">
-                        <div className="text-gray-400">Team Opponents</div>
-                        <div className="text-6xl font-bold text-red-400">{scores.team2}</div>
-                    </div>
                 </div>
-                <button onClick={() => setGameState('LOBBY')} className="btn btn-primary">Back to Menu</button>
-            </div>
-        );
-    }
+            );
+        }
+
+        return null;
+    };
 
     return (
-        <div className="min-h-screen bg-neutral-900 flex flex-col p-4">
-            {/* Header */}
-            <div className="flex justify-between items-center mb-4 glass p-4 rounded-lg">
-                <div className="font-bold text-xl">PRO JASS</div>
-                <div className="flex gap-8 text-xl font-mono">
-                    <div className="text-green-400">WE: {scores.team1}</div>
-                    <div className="text-red-400">THEY: {scores.team2}</div>
-                </div>
-                <div>{notification && <span className="text-yellow-400 animate-pulse">{notification}</span>}</div>
-            </div>
+        <main className="min-h-screen">
+            {renderContent()}
 
-            {/* Game Table */}
-            <div className="flex-grow flex items-center justify-center">
-                <GameTable
-                    players={players}
-                    myPlayerId={myPlayerId}
-                    trick={trick}
-                    trump={trump}
-                    currentTurn={currentTurn}
-                    onPlayCard={(cIdx) => handlePlayCard(players.findIndex(p => p.id === myPlayerId), cIdx)}
-                    lastTrickWinner={lastTrickWinner}
-                />
-            </div>
-        </div>
+            {/* Global Notification */}
+            {notification && (
+                <div className="notification success">{notification}</div>
+            )}
+        </main>
     );
 }

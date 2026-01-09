@@ -10,8 +10,13 @@
   },
   "dependencies": {
     "next": "16.1.1",
+    "partykit": "^0.0.115",
+    "partysocket": "^1.1.10",
+    "pusher": "^5.3.2",
+    "pusher-js": "^8.4.0",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@types/node": "^20",

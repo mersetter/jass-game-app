@@ -1,34 +1,52 @@
+'use client';
 
 import React from 'react';
-import { Card as CardType, SUIT_COLORS, SUIT_SYMBOLS } from '@/lib/jass';
+import { Card as CardType, SUIT_SYMBOLS, RANK_NAMES } from '@/lib/types';
 
 interface CardProps {
     card: CardType;
     onClick?: () => void;
-    className?: string;
     disabled?: boolean;
+    className?: string;
+    animationDelay?: number;
 }
 
-export function Card({ card, onClick, className = '', disabled }: CardProps) {
-    const color = SUIT_COLORS[card.suit]; // 'red' or 'black'
-    const symbol = SUIT_SYMBOLS[card.suit]; // Unicode
+export function Card({ card, onClick, disabled, className = '', animationDelay = 0 }: CardProps) {
+    const isRed = card.suit === 'HEARTS' || card.suit === 'DIAMONDS';
+    const symbol = SUIT_SYMBOLS[card.suit];
+    const rank = RANK_NAMES[card.rank];
 
     return (
         <div
-            className={`playing-card ${color} ${className} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-            onClick={!disabled ? onClick : undefined}
+            className={`playing-card ${isRed ? 'red' : 'black'} ${disabled ? 'disabled' : ''} ${className}`}
+            onClick={disabled ? undefined : onClick}
+            style={{ animationDelay: `${animationDelay}ms` }}
+            role="button"
+            tabIndex={disabled ? -1 : 0}
+            aria-label={`${rank} ${card.suit}`}
         >
-            <div className="card-top">
-                <span className="card-rank">{card.rank}</span>
-                <span className="card-suit">{symbol}</span>
+            {/* Top left corner */}
+            <div className="card-corner">
+                <span className="card-rank">{rank}</span>
+                <span className="card-suit-small">{symbol}</span>
             </div>
-            <div className="card-center">
-                {symbol}
-            </div>
-            <div className="card-bottom">
-                <span className="card-rank">{card.rank}</span>
-                <span className="card-suit">{symbol}</span>
+
+            {/* Center symbol */}
+            <span className="card-center">{symbol}</span>
+
+            {/* Bottom right corner (rotated) */}
+            <div className="card-corner bottom">
+                <span className="card-rank">{rank}</span>
+                <span className="card-suit-small">{symbol}</span>
             </div>
         </div>
     );
+}
+
+interface CardBackProps {
+    className?: string;
+}
+
+export function CardBack({ className = '' }: CardBackProps) {
+    return <div className={`card-back ${className}`} />;
 }
