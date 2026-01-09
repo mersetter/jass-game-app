@@ -28,10 +28,11 @@ A premium, modern web-based Jass application built with Next.js.
 
 To make this app available to friends online:
 
-1. Push this code to GitHub.
-2. Go to [Vercel](https://vercel.com) and import your repository.
-3. Deploy! You will get a public link (e.g., `https://my-jass-app.vercel.app`).
-4. Share the link with friends.
+1. The code is already pushed to [GitHub](https://github.com/mersetter/jass-game-app).
+2. Go to [Vercel](https://vercel.com) and sign in.
+3. Click "Add New..." -> "Project".
+4. Import `jass-game-app`.
+5. Click **Deploy**.
 
 ### Real-Time Multiplayer Note
 
