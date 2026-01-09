@@ -1,36 +1,45 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+
+# Pro Jass App
+
+A premium, modern web-based Jass application built with Next.js.
+
+## Features
+
+- **Play against Bots**: advanced card logic and automated opponents.
+- **Premium Design**: Dark mode aesthetic with glassmorphism effects.
+- **Responsive**: Works on Tablets and Desktops. (Mobile Landscape recommended).
+- **Jass Rules**: Supports standard Trump rules (Schieber basics).
 
 ## Getting Started
 
-First, run the development server:
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+2. Run the development server:
+   ```bash
+   npm run dev
+   ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+3. Open [http://localhost:3000](http://localhost:3000) with your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Deployment (Go Online)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+To make this app available to friends online:
 
-## Learn More
+1. Push this code to GitHub.
+2. Go to [Vercel](https://vercel.com) and import your repository.
+3. Deploy! You will get a public link (e.g., `https://my-jass-app.vercel.app`).
+4. Share the link with friends.
 
-To learn more about Next.js, take a look at the following resources:
+### Real-Time Multiplayer Note
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Currently, the "Online" mode is a placeholder. To enable real-time multiplayer where 4 people play on different devices, you need a backend server to sync the game state.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Recommended stack for adding multiplayer:
+- **Socket.io** with a custom Node.js server.
+- **Firebase Realtime Database**.
+- **PartyKit** (Serverless WebSockets).
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+For now, enjoy the Single Player experience against our Bots!
